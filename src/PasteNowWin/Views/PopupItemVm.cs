@@ -1,0 +1,68 @@
+using System;
+using System.IO;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using PasteNowWin.Models;
+
+namespace PasteNowWin.Views;
+
+/// <summary>Display wrapper for a <see cref="ClipboardItem"/> shown in the popup list.</summary>
+public sealed class PopupItemVm
+{
+    public ClipboardItem Item { get; }
+    public string PreviewText { get; }
+    public string TimeText { get; }
+    public string Glyph { get; }
+    public ImageSource? Thumbnail { get; }
+
+    public Visibility GlyphVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PinVisibility => Item.Pinned ? Visibility.Visible : Visibility.Collapsed;
+
+    public PopupItemVm(ClipboardItem item)
+    {
+        Item = item;
+        TimeText = item.CreatedAt.ToLocalTime().ToString("HH:mm");
+        PreviewText = CollapseWhitespace(item.Preview);
+
+        switch (item.Type)
+        {
+            case ClipItemType.Image:
+                Glyph = "🖼";
+                Thumbnail = item.ImageData != null ? LoadThumbnail(item.ImageData) : null;
+                break;
+            case ClipItemType.Files:
+                Glyph = "📁";
+                break;
+            default:
+                Glyph = "T";
+                break;
+        }
+    }
+
+    private static string CollapseWhitespace(string text)
+    {
+        string s = text.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ').Trim();
+        return s.Length > 160 ? s[..160] + "…" : s;
+    }
+
+    private static ImageSource? LoadThumbnail(byte[] png)
+    {
+        try
+        {
+            var bmp = new BitmapImage();
+            using var ms = new MemoryStream(png);
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.DecodePixelWidth = 80;
+            bmp.StreamSource = ms;
+            bmp.EndInit();
+            bmp.Freeze();
+            return bmp;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
