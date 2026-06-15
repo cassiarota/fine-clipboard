@@ -31,6 +31,7 @@ public partial class App : Application
 
     private System.Windows.Forms.NotifyIcon _tray = null!;
     private System.Windows.Forms.ToolStripMenuItem _openMenuItem = null!;
+    private System.Windows.Forms.ToolStripMenuItem _pauseMenuItem = null!;
     private System.Windows.Forms.ToolStripMenuItem _startupMenuItem = null!;
     private System.Windows.Forms.ToolStripMenuItem _updateMenuItem = null!;
     private System.Drawing.Icon? _trayIcon;
@@ -57,6 +58,7 @@ public partial class App : Application
         }
 
         _store = new HistoryStore();
+        ThemeManager.Apply(_store.GetSetting(HistoryStore.ThemeKey));
         PurgeExpiredNow();
         _purgeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromHours(1) };
         _purgeTimer.Tick += (_, _) => PurgeExpiredNow();
@@ -75,9 +77,22 @@ public partial class App : Application
         ReloadHotkeys();
 
         SetupTray();
+        ShowFirstRunWelcome();
 
         // Check for a newer release in the background (silent if none / on error).
         _ = CheckForUpdatesAsync(silent: true);
+    }
+
+    private void ShowFirstRunWelcome()
+    {
+        if (_store.GetSetting(HistoryStore.FirstRunKey) == "1")
+        {
+            return;
+        }
+        _store.SetSetting(HistoryStore.FirstRunKey, "1");
+        HotkeyCombo popup = HotkeyCombo.Parse(_store.GetSetting(HistoryStore.HotkeyPopupKey), DefaultPopup);
+        ShowBalloon("PasteNowWin 已启动",
+            $"按 {popup.ToDisplayString()} 打开剪贴板历史。程序在屏幕右下角托盘运行,右键图标可打开设置。");
     }
 
     private bool IsExcludedSource(string? source)
@@ -237,16 +252,19 @@ public partial class App : Application
         // Remember the window we'll paste back into, before our popup steals focus.
         _lastForeground = NativeMethods.GetForegroundWindow();
 
-        _popup ??= new PopupWindow(_store, OnPasteRequested);
+        _popup ??= new PopupWindow(_store, this);
         _popup.LoadItems();
         _popup.ShowAtCursor();
     }
 
-    private void OnPasteRequested(ClipboardItem item, bool plainText)
-    {
-        _popup?.Hide();
+    // Called by the popup (which has already hidden itself) to act on the previous window.
+    internal void PasteItem(ClipboardItem item, bool plainText) =>
         _ = _paste.PasteItemAsync(item, _lastForeground, plainText);
-    }
+
+    internal void PasteText(string text) =>
+        _ = _paste.PasteTextAsync(text, _lastForeground);
+
+    internal void CopyItem(ClipboardItem item) => _paste.CopyToClipboard(item);
 
     private void ShowSettings()
     {
@@ -289,6 +307,14 @@ public partial class App : Application
         menu.Items.Add(_openMenuItem);
 
         menu.Items.Add("设置…", null, (_, _) => ShowSettings());
+
+        _pauseMenuItem = new System.Windows.Forms.ToolStripMenuItem("暂停记录(隐私模式)") { CheckOnClick = true };
+        _pauseMenuItem.CheckedChanged += (_, _) =>
+        {
+            _monitor.Paused = _pauseMenuItem.Checked;
+            _tray.Text = _pauseMenuItem.Checked ? "PasteNowWin(已暂停记录)" : "PasteNowWin";
+        };
+        menu.Items.Add(_pauseMenuItem);
 
         _startupMenuItem = new System.Windows.Forms.ToolStripMenuItem("开机自启")
         {

@@ -7,17 +7,28 @@ using PasteNowWin.Models;
 
 namespace PasteNowWin.Views;
 
-/// <summary>Display wrapper for a <see cref="ClipboardItem"/> shown in the popup list.</summary>
+/// <summary>Display wrapper for a clipboard item or a snippet shown in the popup list.</summary>
 public sealed class PopupItemVm
 {
-    public ClipboardItem Item { get; }
+    public ClipboardItem? Item { get; }
+    public Snippet? Snippet { get; }
+    public bool IsSnippet => Snippet != null;
+
     public string PreviewText { get; }
     public string TimeText { get; }
     public string Glyph { get; }
     public ImageSource? Thumbnail { get; }
 
+    /// <summary>Quick-paste number (1-9) for the first rows; empty otherwise.</summary>
+    public string Badge { get; set; } = string.Empty;
+
     public Visibility GlyphVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility PinVisibility => Item.Pinned ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PinVisibility => Item?.Pinned == true ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility TimeVisibility => IsSnippet ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility BadgeVisibility => string.IsNullOrEmpty(Badge) ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>The text this row would paste (item text or snippet text).</summary>
+    public string? PasteText => IsSnippet ? Snippet!.Text : Item?.Text;
 
     public PopupItemVm(ClipboardItem item)
     {
@@ -38,6 +49,14 @@ public sealed class PopupItemVm
                 Glyph = "T";
                 break;
         }
+    }
+
+    public PopupItemVm(Snippet snippet)
+    {
+        Snippet = snippet;
+        Glyph = "✦";
+        TimeText = string.Empty;
+        PreviewText = CollapseWhitespace(snippet.Name);
     }
 
     private static string CollapseWhitespace(string text)

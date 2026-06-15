@@ -32,6 +32,18 @@ public sealed class HistoryStore : IDisposable
     /// <summary>Settings key: "1" to play a sound when a new clipboard item is captured.</summary>
     public const string SoundEnabledKey = "sound_enabled";
 
+    /// <summary>Settings key: max number of unpinned items to keep (default 1000).</summary>
+    public const string MaxItemsKey = "max_items";
+
+    /// <summary>Settings key: appearance theme — "system" / "light" / "dark".</summary>
+    public const string ThemeKey = "theme";
+
+    /// <summary>Settings key: popup size — "small" / "medium" / "large".</summary>
+    public const string PopupSizeKey = "popup_size";
+
+    /// <summary>Settings key: "1" once the first-run welcome has been shown.</summary>
+    public const string FirstRunKey = "first_run_done";
+
     private readonly SqliteConnection _conn;
 
     public HistoryStore()
@@ -68,6 +80,12 @@ public sealed class HistoryStore : IDisposable
             CREATE TABLE IF NOT EXISTS meta (
                 key   TEXT PRIMARY KEY,
                 value TEXT
+            );
+            CREATE TABLE IF NOT EXISTS snippets (
+                id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                name  TEXT NOT NULL,
+                text  TEXT NOT NULL,
+                sort  INTEGER NOT NULL DEFAULT 0
             );";
         cmd.ExecuteNonQuery();
     }
@@ -213,6 +231,54 @@ public sealed class HistoryStore : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    // ---- Snippets ----
+    public List<Snippet> GetSnippets()
+    {
+        var list = new List<Snippet>();
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = "SELECT id, name, text FROM snippets ORDER BY sort, id";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            list.Add(new Snippet
+            {
+                Id = reader.GetInt64(0),
+                Name = reader.GetString(1),
+                Text = reader.GetString(2),
+            });
+        }
+        return list;
+    }
+
+    public long AddSnippet(string name, string text)
+    {
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO snippets (name, text, sort) VALUES ($n, $t,
+            (SELECT COALESCE(MAX(sort), 0) + 1 FROM snippets));
+            SELECT last_insert_rowid();";
+        cmd.Parameters.AddWithValue("$n", name);
+        cmd.Parameters.AddWithValue("$t", text);
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    public void UpdateSnippet(long id, string name, string text)
+    {
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = "UPDATE snippets SET name = $n, text = $t WHERE id = $id";
+        cmd.Parameters.AddWithValue("$n", name);
+        cmd.Parameters.AddWithValue("$t", text);
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteSnippet(long id)
+    {
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM snippets WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.ExecuteNonQuery();
+    }
+
     /// <summary>Deletes unpinned items older than <paramref name="days"/>. No-op when days &lt;= 0.</summary>
     public void PurgeExpired(int days)
     {
@@ -235,8 +301,17 @@ public sealed class HistoryStore : IDisposable
             WHERE pinned = 0 AND id NOT IN (
                 SELECT id FROM items WHERE pinned = 0 ORDER BY created_at DESC LIMIT $keep
             )";
-        cmd.Parameters.AddWithValue("$keep", MaxUnpinnedItems);
+        cmd.Parameters.AddWithValue("$keep", GetMaxItems());
         cmd.ExecuteNonQuery();
+    }
+
+    private int GetMaxItems()
+    {
+        if (int.TryParse(GetSetting(MaxItemsKey), out int n) && n >= 50 && n <= 100000)
+        {
+            return n;
+        }
+        return MaxUnpinnedItems;
     }
 
     private static List<ClipboardItem> ReadAll(SqliteCommand cmd)

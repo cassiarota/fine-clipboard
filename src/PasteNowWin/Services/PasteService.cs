@@ -57,6 +57,28 @@ public sealed class PasteService
         _store.Touch(item.Id);
     }
 
+    /// <summary>Puts an item on the clipboard without pasting (and bumps it to the top).</summary>
+    public void CopyToClipboard(ClipboardItem item)
+    {
+        SetClipboard(item, plainText: false);
+        _store.Touch(item.Id);
+    }
+
+    /// <summary>Pastes arbitrary text (snippets / transforms) into the target window.</summary>
+    public async Task PasteTextAsync(string text, IntPtr target)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+        _monitor.SuppressFor(600);
+        SetText(text);
+        await Task.Delay(60).ConfigureAwait(true);
+        NativeMethods.ForceForeground(target);
+        await Task.Delay(90).ConfigureAwait(true);
+        NativeMethods.SendCtrlV();
+    }
+
     private void SetClipboard(ClipboardItem item, bool plainText)
     {
         _monitor.SuppressFor(600);

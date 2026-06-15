@@ -31,6 +31,9 @@ public sealed class ClipboardMonitor : IDisposable
     /// </summary>
     public Func<string?, bool>? ShouldSkipSource { get; set; }
 
+    /// <summary>When true, clipboard changes are ignored (privacy / pause mode).</summary>
+    public bool Paused { get; set; }
+
     public ClipboardMonitor(NativeMessageWindow msg)
     {
         _msg = msg;
@@ -50,7 +53,7 @@ public sealed class ClipboardMonitor : IDisposable
         {
             return;
         }
-        if (Environment.TickCount64 < _suppressUntilTick)
+        if (Paused || Environment.TickCount64 < _suppressUntilTick)
         {
             return;
         }

@@ -33,6 +33,9 @@ public partial class SettingsWindow : Window
         SoundCheck.IsChecked = _store.GetSetting(HistoryStore.SoundEnabledKey) == "1";
         LoadExpirySelection();
         ExclusionsBox.Text = _store.GetSetting(HistoryStore.ExclusionsKey) ?? string.Empty;
+        SelectByTag(MaxItemsCombo, _store.GetSetting(HistoryStore.MaxItemsKey) ?? "1000");
+        SelectByTag(ThemeCombo, _store.GetSetting(HistoryStore.ThemeKey) ?? "system");
+        SelectByTag(PopupSizeCombo, _store.GetSetting(HistoryStore.PopupSizeKey) ?? "medium");
         LoadHotkeyDisplay();
         RefreshCount();
         _initializing = false;
@@ -179,6 +182,56 @@ public partial class SettingsWindow : Window
             return;
         }
         _store.SetSetting(HistoryStore.ExclusionsKey, ExclusionsBox.Text);
+    }
+
+    // ---- Appearance / capacity / snippets ----
+    private void MaxItemsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        SaveTag(MaxItemsCombo, HistoryStore.MaxItemsKey);
+
+    private void PopupSizeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        SaveTag(PopupSizeCombo, HistoryStore.PopupSizeKey);
+
+    private void ThemeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_initializing)
+        {
+            return;
+        }
+        if (ThemeCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+        {
+            _store.SetSetting(HistoryStore.ThemeKey, tag);
+            ThemeManager.Apply(tag);
+        }
+    }
+
+    private void ManageSnippets_Click(object sender, RoutedEventArgs e)
+    {
+        new SnippetsWindow(_store) { Owner = this }.ShowDialog();
+    }
+
+    private void SaveTag(ComboBox combo, string settingKey)
+    {
+        if (_initializing)
+        {
+            return;
+        }
+        if (combo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+        {
+            _store.SetSetting(settingKey, tag);
+        }
+    }
+
+    private static void SelectByTag(ComboBox combo, string value)
+    {
+        foreach (object obj in combo.Items)
+        {
+            if (obj is ComboBoxItem item && (string?)item.Tag == value)
+            {
+                combo.SelectedItem = item;
+                return;
+            }
+        }
+        combo.SelectedIndex = 0;
     }
 
     // ---- History management ----

@@ -6,6 +6,7 @@
         ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
         Background="#F4F4F6">
 
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
     <StackPanel Margin="24,20">
         <TextBlock Text="PasteNowWin" FontSize="22" FontWeight="Bold" Foreground="#222" />
         <TextBlock x:Name="VersionText" Foreground="#777" Margin="0,2,0,18" />
@@ -22,6 +23,18 @@
                     Padding="10,5" Margin="0,0,10,0" />
             <Button Content="全部清空" Click="ClearAll_Click" Padding="10,5" />
         </StackPanel>
+
+        <TextBlock Text="最多保留(非置顶记录)" Foreground="#444" Margin="0,12,0,4" FontSize="13" />
+        <ComboBox x:Name="MaxItemsCombo" Width="180" HorizontalAlignment="Left"
+                  SelectionChanged="MaxItemsCombo_SelectionChanged">
+            <ComboBoxItem Tag="200" Content="200 条" />
+            <ComboBoxItem Tag="500" Content="500 条" />
+            <ComboBoxItem Tag="1000" Content="1000 条" />
+            <ComboBoxItem Tag="5000" Content="5000 条" />
+        </ComboBox>
+
+        <Button Content="管理常用片段…" Click="ManageSnippets_Click"
+                Padding="10,5" HorizontalAlignment="Left" Margin="0,14,0,0" />
 
         <TextBlock Text="历史过期时间" FontWeight="Bold" Foreground="#222" FontSize="14" Margin="0,16,0,4" />
         <ComboBox x:Name="ExpiryCombo" Width="180" HorizontalAlignment="Left"
@@ -41,6 +54,27 @@
         <TextBox x:Name="ExclusionsBox" Height="72" AcceptsReturn="True" TextWrapping="NoWrap"
                  VerticalScrollBarVisibility="Auto" FontSize="12"
                  TextChanged="ExclusionsBox_TextChanged" />
+
+        <TextBlock Text="外观" FontWeight="Bold" Foreground="#222" FontSize="14" Margin="0,16,0,4" />
+        <StackPanel Orientation="Horizontal">
+            <StackPanel Margin="0,0,18,0">
+                <TextBlock Text="主题" Foreground="#444" FontSize="12" Margin="0,0,0,3" />
+                <ComboBox x:Name="ThemeCombo" Width="120" SelectionChanged="ThemeCombo_SelectionChanged">
+                    <ComboBoxItem Tag="system" Content="跟随系统" />
+                    <ComboBoxItem Tag="light" Content="浅色" />
+                    <ComboBoxItem Tag="dark" Content="深色" />
+                </ComboBox>
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="弹窗大小" Foreground="#444" FontSize="12" Margin="0,0,0,3" />
+                <ComboBox x:Name="PopupSizeCombo" Width="120" SelectionChanged="PopupSizeCombo_SelectionChanged">
+                    <ComboBoxItem Tag="small" Content="小" />
+                    <ComboBoxItem Tag="medium" Content="中" />
+                    <ComboBoxItem Tag="large" Content="大" />
+                </ComboBox>
+            </StackPanel>
+        </StackPanel>
+        <TextBlock Text="主题仅影响历史弹窗" Foreground="#888" FontSize="11" Margin="0,4,0,0" />
 
         <Separator Margin="0,18" />
 
@@ -66,4 +100,5 @@
                     Padding="10,4" Margin="0,4" HorizontalAlignment="Left" MinWidth="160" />
         </Grid>
     </StackPanel>
+    </ScrollViewer>
 </Window>
