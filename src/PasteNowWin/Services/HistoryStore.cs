@@ -44,6 +44,12 @@ public sealed class HistoryStore : IDisposable
     /// <summary>Settings key: "1" once the first-run welcome has been shown.</summary>
     public const string FirstRunKey = "first_run_done";
 
+    /// <summary>Settings key: base64 random salt for the password vault's KDF.</summary>
+    public const string PwSaltKey = "pw_salt";
+
+    /// <summary>Settings key: base64 verifier (a known token encrypted with the master key).</summary>
+    public const string PwCheckKey = "pw_check";
+
     private readonly SqliteConnection _conn;
 
     public HistoryStore()
@@ -85,6 +91,12 @@ public sealed class HistoryStore : IDisposable
                 id    INTEGER PRIMARY KEY AUTOINCREMENT,
                 name  TEXT NOT NULL,
                 text  TEXT NOT NULL,
+                sort  INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS passwords (
+                id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                name  TEXT NOT NULL,
+                blob  BLOB NOT NULL,
                 sort  INTEGER NOT NULL DEFAULT 0
             );";
         cmd.ExecuteNonQuery();
@@ -275,6 +287,71 @@ public sealed class HistoryStore : IDisposable
     {
         using SqliteCommand cmd = _conn.CreateCommand();
         cmd.CommandText = "DELETE FROM snippets WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.ExecuteNonQuery();
+    }
+
+    // ---- Password vault (raw encrypted blobs; crypto lives in PasswordVault) ----
+    public List<PasswordEntry> GetPasswordEntries()
+    {
+        var list = new List<PasswordEntry>();
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = "SELECT id, name FROM passwords ORDER BY sort, id";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            list.Add(new PasswordEntry { Id = reader.GetInt64(0), Name = reader.GetString(1) });
+        }
+        return list;
+    }
+
+    public List<(long Id, string Name, byte[] Blob)> GetPasswordRows()
+    {
+        var list = new List<(long, string, byte[])>();
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = "SELECT id, name, blob FROM passwords ORDER BY sort, id";
+        using SqliteDataReader reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            list.Add((reader.GetInt64(0), reader.GetString(1), (byte[])reader.GetValue(2)));
+        }
+        return list;
+    }
+
+    public byte[]? GetPasswordBlob(long id)
+    {
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = "SELECT blob FROM passwords WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        object? value = cmd.ExecuteScalar();
+        return value is byte[] b ? b : null;
+    }
+
+    public long InsertPassword(string name, byte[] blob)
+    {
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO passwords (name, blob, sort) VALUES ($n, $b,
+            (SELECT COALESCE(MAX(sort), 0) + 1 FROM passwords));
+            SELECT last_insert_rowid();";
+        cmd.Parameters.AddWithValue("$n", name);
+        cmd.Parameters.AddWithValue("$b", blob);
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    public void UpdatePassword(long id, string name, byte[] blob)
+    {
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = "UPDATE passwords SET name = $n, blob = $b WHERE id = $id";
+        cmd.Parameters.AddWithValue("$n", name);
+        cmd.Parameters.AddWithValue("$b", blob);
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeletePassword(long id)
+    {
+        using SqliteCommand cmd = _conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM passwords WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         cmd.ExecuteNonQuery();
     }

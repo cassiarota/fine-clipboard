@@ -28,6 +28,9 @@ public partial class App : Application
     private ClipboardMonitor _monitor = null!;
     private PasteService _paste = null!;
     private HotkeyManager _hotkeys = null!;
+    private PasswordVault _vault = null!;
+
+    internal PasswordVault Vault => _vault;
 
     private System.Windows.Forms.NotifyIcon _tray = null!;
     private System.Windows.Forms.ToolStripMenuItem _openMenuItem = null!;
@@ -58,6 +61,7 @@ public partial class App : Application
         }
 
         _store = new HistoryStore();
+        _vault = new PasswordVault(_store);
         ThemeManager.Apply(_store.GetSetting(HistoryStore.ThemeKey));
         PurgeExpiredNow();
         _purgeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromHours(1) };
@@ -315,6 +319,7 @@ public partial class App : Application
             _tray.Text = _pauseMenuItem.Checked ? "PasteNowWin(已暂停记录)" : "PasteNowWin";
         };
         menu.Items.Add(_pauseMenuItem);
+        menu.Items.Add("锁定密码", null, (_, _) => _vault.Lock());
 
         _startupMenuItem = new System.Windows.Forms.ToolStripMenuItem("开机自启")
         {

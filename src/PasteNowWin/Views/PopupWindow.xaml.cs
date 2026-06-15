@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using PasteNowWin.Models;
 using PasteNowWin.Services;
@@ -19,6 +20,8 @@ public partial class PopupWindow : Window
     private readonly App _app;
     private List<PopupItemVm> _clip = new();
     private List<PopupItemVm> _snippets = new();
+    private List<PopupItemVm> _passwords = new();
+    private Point _dragStart;
     private bool _contextMenuOpen;
     private bool _suppressHide;
     private bool _initialized;
@@ -52,6 +55,7 @@ public partial class PopupWindow : Window
     {
         _clip = _store.GetAll(200).Select(i => new PopupItemVm(i)).ToList();
         _snippets = _store.GetSnippets().Select(s => new PopupItemVm(s)).ToList();
+        _passwords = _app.Vault.GetEntries().Select(p => new PopupItemVm(p)).ToList();
     }
 
     public void FocusSearch()
@@ -86,6 +90,7 @@ public partial class PopupWindow : Window
     }
 
     private bool SnippetTab => FilterTabs.SelectedIndex == 5;
+    private bool PasswordTab => FilterTabs.SelectedIndex == 6;
 
     private void ApplyFilter()
     {
@@ -97,9 +102,9 @@ public partial class PopupWindow : Window
         string query = SearchBox.Text;
         IEnumerable<PopupItemVm> source;
 
-        if (SnippetTab)
+        if (SnippetTab || PasswordTab)
         {
-            source = _snippets;
+            source = PasswordTab ? _passwords : _snippets;
             if (!string.IsNullOrWhiteSpace(query))
             {
                 source = source.Where(v =>
@@ -140,11 +145,12 @@ public partial class PopupWindow : Window
 
         SearchPlaceholder.Visibility = string.IsNullOrEmpty(query) ? Visibility.Visible : Visibility.Collapsed;
         EmptyHint.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyHint.Text = !string.IsNullOrEmpty(query)
-            ? "没有匹配的内容"
-            : SnippetTab
-                ? "还没有常用片段,可在「设置 → 常用片段」里添加"
-                : "还没有历史记录,复制点东西试试";
+        EmptyHint.Text = !string.IsNullOrEmpty(query) ? "没有匹配的内容"
+            : SnippetTab ? "还没有常用片段,可在「设置 → 常用片段」里添加"
+            : PasswordTab ? (_app.Vault.IsConfigured
+                ? "还没有密码,可在「设置 → 密码管理」里添加"
+                : "请先在「设置 → 密码保护」里设置主密码")
+            : "还没有历史记录,复制点东西试试";
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
@@ -218,6 +224,105 @@ public partial class PopupWindow : Window
 
     private void ItemsList_MouseDoubleClick(object sender, MouseButtonEventArgs e) => PasteSelected(plainText: false);
 
+    // ---- Drag out to other apps ----
+    private void ItemsList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
+        _dragStart = e.GetPosition(null);
+
+    private void ItemsList_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+        Point pos = e.GetPosition(null);
+        if (Math.Abs(pos.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+        if (ItemsList.SelectedItem is not PopupItemVm vm || vm.IsPassword)
+        {
+            return; // never drag passwords
+        }
+
+        DataObject? data = BuildDragData(vm);
+        if (data == null)
+        {
+            return;
+        }
+
+        _suppressHide = true;
+        DragDropEffects effect;
+        try
+        {
+            effect = DragDrop.DoDragDrop(ItemsList, data, DragDropEffects.Copy);
+        }
+        finally
+        {
+            _suppressHide = false;
+        }
+        if (effect == DragDropEffects.Copy)
+        {
+            Hide();
+        }
+    }
+
+    private static DataObject? BuildDragData(PopupItemVm vm)
+    {
+        var data = new DataObject();
+        if (vm.IsSnippet)
+        {
+            data.SetText(vm.Snippet!.Text);
+            return data;
+        }
+
+        ClipboardItem? item = vm.Item;
+        if (item == null)
+        {
+            return null;
+        }
+        switch (item.Type)
+        {
+            case ClipItemType.Text when !string.IsNullOrEmpty(item.Text):
+                data.SetText(item.Text);
+                break;
+            case ClipItemType.Files:
+                var paths = new System.Collections.Specialized.StringCollection();
+                paths.AddRange(item.FilePaths);
+                data.SetFileDropList(paths);
+                break;
+            case ClipItemType.Image when item.ImageData != null:
+                BitmapImage? bmp = LoadBitmap(item.ImageData);
+                if (bmp != null)
+                {
+                    data.SetImage(bmp);
+                }
+                break;
+            default:
+                return null;
+        }
+        return data;
+    }
+
+    private static BitmapImage? LoadBitmap(byte[] png)
+    {
+        try
+        {
+            var bmp = new BitmapImage();
+            using var ms = new MemoryStream(png);
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.StreamSource = ms;
+            bmp.EndInit();
+            bmp.Freeze();
+            return bmp;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // ---- Paste paths ----
     private void PasteByNumber(int n)
     {
@@ -237,6 +342,12 @@ public partial class PopupWindow : Window
 
     private void PasteVm(PopupItemVm vm, bool plainText)
     {
+        if (vm.IsPassword)
+        {
+            PastePassword(vm.Password!);
+            return;
+        }
+
         Hide();
         if (vm.IsSnippet)
         {
@@ -245,6 +356,58 @@ public partial class PopupWindow : Window
         else if (vm.Item != null)
         {
             _app.PasteItem(vm.Item, plainText);
+        }
+    }
+
+    private void PastePassword(Models.PasswordEntry entry)
+    {
+        if (!EnsureUnlocked())
+        {
+            return;
+        }
+        string? secret = _app.Vault.Reveal(entry.Id);
+        if (secret == null)
+        {
+            return;
+        }
+        Hide();
+        _app.PasteText(secret);
+    }
+
+    /// <summary>Prompts for the master password until the vault unlocks or the user cancels.</summary>
+    private bool EnsureUnlocked()
+    {
+        if (_app.Vault.IsUnlocked)
+        {
+            return true;
+        }
+        if (!_app.Vault.IsConfigured)
+        {
+            MessageBox.Show("请先在「设置 → 密码保护」里设置主密码。", "PasteNowWin",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return false;
+        }
+
+        _suppressHide = true;
+        try
+        {
+            while (true)
+            {
+                var dialog = new MasterPasswordDialog("解锁密码", "输入主密码以查看 / 粘贴密码:") { Owner = this };
+                if (dialog.ShowDialog() != true)
+                {
+                    return false;
+                }
+                if (_app.Vault.Unlock(dialog.Password))
+                {
+                    return true;
+                }
+                MessageBox.Show("主密码不正确。", "PasteNowWin", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        finally
+        {
+            _suppressHide = false;
         }
     }
 
@@ -266,7 +429,11 @@ public partial class PopupWindow : Window
             return;
         }
         int index = ItemsList.SelectedIndex;
-        if (vm.IsSnippet)
+        if (vm.IsPassword)
+        {
+            _app.Vault.DeleteEntry(vm.Password!.Id);
+        }
+        else if (vm.IsSnippet)
         {
             _store.DeleteSnippet(vm.Snippet!.Id);
         }

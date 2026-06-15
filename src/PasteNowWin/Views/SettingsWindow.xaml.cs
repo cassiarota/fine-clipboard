@@ -36,6 +36,7 @@ public partial class SettingsWindow : Window
         SelectByTag(MaxItemsCombo, _store.GetSetting(HistoryStore.MaxItemsKey) ?? "1000");
         SelectByTag(ThemeCombo, _store.GetSetting(HistoryStore.ThemeKey) ?? "system");
         SelectByTag(PopupSizeCombo, _store.GetSetting(HistoryStore.PopupSizeKey) ?? "medium");
+        MasterPwButton.Content = _app.Vault.IsConfigured ? "修改主密码…" : "设置主密码…";
         LoadHotkeyDisplay();
         RefreshCount();
         _initializing = false;
@@ -207,6 +208,38 @@ public partial class SettingsWindow : Window
     private void ManageSnippets_Click(object sender, RoutedEventArgs e)
     {
         new SnippetsWindow(_store) { Owner = this }.ShowDialog();
+    }
+
+    // ---- Password protection ----
+    private void MasterPw_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new SetMasterPasswordWindow(_app.Vault) { Owner = this };
+        if (window.ShowDialog() == true)
+        {
+            MasterPwButton.Content = "修改主密码…";
+        }
+    }
+
+    private void ManagePasswords_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_app.Vault.IsConfigured)
+        {
+            MessageBox.Show("请先设置主密码。", "PasteNowWin", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        while (!_app.Vault.IsUnlocked)
+        {
+            var dialog = new MasterPasswordDialog("解锁密码", "输入主密码以管理密码:") { Owner = this };
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+            if (!_app.Vault.Unlock(dialog.Password))
+            {
+                MessageBox.Show("主密码不正确。", "PasteNowWin", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        new PasswordsWindow(_app.Vault) { Owner = this }.ShowDialog();
     }
 
     private void SaveTag(ComboBox combo, string settingKey)

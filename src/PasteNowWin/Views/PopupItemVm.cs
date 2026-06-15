@@ -12,7 +12,9 @@ public sealed class PopupItemVm
 {
     public ClipboardItem? Item { get; }
     public Snippet? Snippet { get; }
+    public PasswordEntry? Password { get; }
     public bool IsSnippet => Snippet != null;
+    public bool IsPassword => Password != null;
 
     public string PreviewText { get; }
     public string TimeText { get; }
@@ -27,8 +29,8 @@ public sealed class PopupItemVm
     public Visibility TimeVisibility => IsSnippet ? Visibility.Collapsed : Visibility.Visible;
     public Visibility BadgeVisibility => string.IsNullOrEmpty(Badge) ? Visibility.Collapsed : Visibility.Visible;
 
-    /// <summary>The text this row would paste (item text or snippet text).</summary>
-    public string? PasteText => IsSnippet ? Snippet!.Text : Item?.Text;
+    /// <summary>The text this row would paste (item or snippet); null for passwords (decrypted on demand).</summary>
+    public string? PasteText => IsSnippet ? Snippet!.Text : IsPassword ? null : Item?.Text;
 
     public PopupItemVm(ClipboardItem item)
     {
@@ -57,6 +59,14 @@ public sealed class PopupItemVm
         Glyph = "✦";
         TimeText = string.Empty;
         PreviewText = CollapseWhitespace(snippet.Name);
+    }
+
+    public PopupItemVm(PasswordEntry password)
+    {
+        Password = password;
+        Glyph = "🔒";
+        TimeText = string.Empty;
+        PreviewText = CollapseWhitespace(password.Name) + "   ••••••";
     }
 
     private static string CollapseWhitespace(string text)

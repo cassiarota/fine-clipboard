@@ -76,6 +76,14 @@
         </StackPanel>
         <TextBlock Text="主题仅影响历史弹窗" Foreground="#888" FontSize="11" Margin="0,4,0,0" />
 
+        <TextBlock Text="密码保护" FontWeight="Bold" Foreground="#222" FontSize="14" Margin="0,16,0,4" />
+        <TextBlock Text="设置主密码后,可在弹窗「密码」标签里加密保存密码;查看 / 粘贴需输入主密码。"
+                   Foreground="#888" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6" />
+        <StackPanel Orientation="Horizontal">
+            <Button x:Name="MasterPwButton" Click="MasterPw_Click" Padding="10,5" Margin="0,0,10,0" />
+            <Button Content="管理密码…" Click="ManagePasswords_Click" Padding="10,5" />
+        </StackPanel>
+
         <Separator Margin="0,18" />
 
         <TextBlock Text="快捷键" FontWeight="Bold" Foreground="#222" FontSize="14" />

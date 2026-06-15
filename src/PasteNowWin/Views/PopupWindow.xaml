@@ -99,6 +99,7 @@
                 <ListBoxItem>文件</ListBoxItem>
                 <ListBoxItem>置顶</ListBoxItem>
                 <ListBoxItem>片段</ListBoxItem>
+                <ListBoxItem>密码</ListBoxItem>
             </ListBox>
 
             <!-- History list + empty hint -->
@@ -107,7 +108,9 @@
                          BorderThickness="0" Background="Transparent"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          HorizontalContentAlignment="Stretch"
-                         MouseDoubleClick="ItemsList_MouseDoubleClick">
+                         MouseDoubleClick="ItemsList_MouseDoubleClick"
+                         PreviewMouseLeftButtonDown="ItemsList_PreviewMouseLeftButtonDown"
+                         PreviewMouseMove="ItemsList_PreviewMouseMove">
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="ListBoxItem">
                             <Setter Property="Margin" Value="0,2" />
