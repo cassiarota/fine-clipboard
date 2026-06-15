@@ -21,8 +21,18 @@ public partial class SettingsWindow : Window
         VersionText.Text = $"版本 {version}";
         StartupCheck.IsChecked = StartupManager.IsEnabled();
         LoadExpirySelection();
+        ExclusionsBox.Text = _store.GetSetting(HistoryStore.ExclusionsKey) ?? string.Empty;
         RefreshCount();
         _initializing = false;
+    }
+
+    private void ExclusionsBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_initializing)
+        {
+            return;
+        }
+        _store.SetSetting(HistoryStore.ExclusionsKey, ExclusionsBox.Text);
     }
 
     private void RefreshCount() => CountText.Text = $"已保存 {_store.Count()} 条历史记录";

@@ -25,6 +25,12 @@ public sealed class ClipboardMonitor : IDisposable
     /// <summary>Raised when new clipboard content is captured.</summary>
     public event Action<ClipboardItem>? ItemCaptured;
 
+    /// <summary>
+    /// Optional predicate: given the source process name, return true to skip capture
+    /// entirely (used by exclusion rules so sensitive content is never even read).
+    /// </summary>
+    public Func<string?, bool>? ShouldSkipSource { get; set; }
+
     public ClipboardMonitor(NativeMessageWindow msg)
     {
         _msg = msg;
@@ -64,6 +70,12 @@ public sealed class ClipboardMonitor : IDisposable
             try
             {
                 string? source = GetForegroundProcessName();
+
+                // Exclusion rules: skip before reading any clipboard content.
+                if (ShouldSkipSource?.Invoke(source) == true)
+                {
+                    return null;
+                }
 
                 if (WpfClipboard.ContainsImage())
                 {

@@ -20,6 +20,9 @@ public sealed class HistoryStore : IDisposable
     /// <summary>Settings key: number of days before unpinned items expire (0 = never).</summary>
     public const string ExpiryDaysKey = "expiry_days";
 
+    /// <summary>Settings key: newline-separated process names whose copies are not recorded.</summary>
+    public const string ExclusionsKey = "exclusions";
+
     private readonly SqliteConnection _conn;
 
     public HistoryStore()

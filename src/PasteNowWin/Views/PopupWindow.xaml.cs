@@ -16,6 +16,7 @@ public partial class PopupWindow : Window
     private readonly Action<ClipboardItem, bool> _onPaste;
     private List<PopupItemVm> _all = new();
     private bool _contextMenuOpen;
+    private bool _initialized;
 
     public PopupWindow(HistoryStore store, Action<ClipboardItem, bool> onPaste)
     {
@@ -33,13 +34,17 @@ public partial class PopupWindow : Window
             }
         };
         PreviewKeyDown += OnPreviewKeyDown;
+
+        // Guards handlers that can fire during XAML initialization (before all controls exist).
+        _initialized = true;
     }
 
     /// <summary>Reloads items from the store and re-applies the current filter.</summary>
     public void LoadItems()
     {
         _all = _store.GetAll(200).Select(i => new PopupItemVm(i)).ToList();
-        ApplyFilter(SearchBox.Text);
+        FilterTabs.SelectedIndex = 0; // reset to "全部" on each open
+        ApplyFilter();
     }
 
     public void FocusSearch()
@@ -64,12 +69,26 @@ public partial class PopupWindow : Window
         FocusSearch();
     }
 
-    private void ApplyFilter(string query)
+    private void ApplyFilter()
     {
-        IEnumerable<PopupItemVm> source = _all;
+        if (!_initialized || ItemsList == null)
+        {
+            return;
+        }
+
+        string query = SearchBox.Text;
+        IEnumerable<PopupItemVm> source = FilterTabs.SelectedIndex switch
+        {
+            1 => _all.Where(v => v.Item.Type == ClipItemType.Text),
+            2 => _all.Where(v => v.Item.Type == ClipItemType.Image),
+            3 => _all.Where(v => v.Item.Type == ClipItemType.Files),
+            4 => _all.Where(v => v.Item.Pinned),
+            _ => _all,
+        };
+
         if (!string.IsNullOrWhiteSpace(query))
         {
-            source = _all.Where(v =>
+            source = source.Where(v =>
                 v.PreviewText.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                 (v.Item.Text?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false));
         }
@@ -80,12 +99,19 @@ public partial class PopupWindow : Window
             ItemsList.SelectedIndex = 0;
         }
 
-        SearchPlaceholder.Visibility = string.IsNullOrEmpty(SearchBox.Text)
+        SearchPlaceholder.Visibility = string.IsNullOrEmpty(query)
             ? Visibility.Visible
             : Visibility.Collapsed;
     }
 
-    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter(SearchBox.Text);
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
+
+    private void FilterTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyFilter();
+        // Keep keyboard focus on the search box so ↑↓/Enter still drive the list.
+        SearchBox?.Focus();
+    }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
