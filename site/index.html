@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>PasteNowWin · Windows 剪贴板管理器</title>
-  <meta name="description" content="PasteNowWin — Windows 上的剪贴板历史管理器,参考 macOS PasteNow,持久化保存、全局快捷键随取随用。" />
+  <title>FineClipboard · Windows / macOS 剪贴板管理器</title>
+  <meta name="description" content="FineClipboard — Windows 与 macOS 上的剪贴板历史管理器,持久化保存文本 / 图片 / 文件,全局快捷键随取随用。" />
   <meta name="theme-color" content="#071117" />
   <link rel="icon" type="image/svg+xml" href="/assets/nav-icon.svg" />
   <style>
@@ -85,15 +85,20 @@
       font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
     }
     h1 { font-size: 36px; line-height: 1.1; font-weight: 850; }
-    .subtitle { max-width: 620px; color: #bfd2d0; font-size: 16px; margin-top: 12px; }
+    .subtitle { max-width: 640px; color: #bfd2d0; font-size: 16px; margin-top: 12px; }
 
-    .cta {
-      display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 22px;
+    .platforms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
+    .pcard {
+      border: 1px solid var(--line); border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03); padding: 18px 18px 20px;
     }
+    .pcard h3 { font-size: 15px; font-weight: 850; display: flex; align-items: center; gap: 8px; }
+    .pcard .os { color: var(--muted); font-size: 12px; margin: 4px 0 14px; }
+    .cta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .btn {
-      display: inline-flex; align-items: center; gap: 10px;
-      padding: 13px 22px; border-radius: 10px;
-      font-size: 15px; font-weight: 800; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 18px; border-radius: 10px;
+      font-size: 14px; font-weight: 800; text-decoration: none;
       border: 1px solid transparent; transition: transform 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
     }
     .btn:hover { transform: translateY(-2px); }
@@ -101,7 +106,7 @@
     .btn-primary:hover { background: #6ee9da; }
     .btn-ghost { color: var(--ink); background: rgba(255, 255, 255, 0.06); border-color: var(--line); }
     .btn-ghost:hover { border-color: rgba(126, 245, 226, 0.5); }
-    .meta-line { color: var(--muted); font-size: 13px; margin-top: 12px; }
+    .meta-line { color: var(--muted); font-size: 13px; margin-top: 16px; }
     .meta-line b { color: var(--ink); }
 
     .panel {
@@ -140,6 +145,7 @@
       border-radius: 7px; padding: 5px 10px; white-space: nowrap;
     }
     .keyrow span { color: var(--muted); font-size: 14px; }
+    .keyrow .plat { color: var(--steel); font-size: 12px; font-weight: 700; width: 64px; }
 
     footer {
       color: rgba(221, 239, 236, 0.7); font-size: 13px;
@@ -151,6 +157,7 @@
 
     @media (max-width: 900px) {
       .features { grid-template-columns: 1fr; }
+      .platforms { grid-template-columns: 1fr; }
       h1 { font-size: 28px; }
     }
   </style>
@@ -173,59 +180,71 @@
         </div>
         <div>
           <p class="eyebrow">Cassian Engines · 桌面工具</p>
-          <h1>PasteNowWin</h1>
+          <h1>FineClipboard</h1>
         </div>
       </div>
       <p class="subtitle">
-        Windows 上的剪贴板历史管理器,参考 macOS 的 <b>PasteNow</b> 设计。系统自带的 Win+V 重启即清空,
-        PasteNowWin 用本地数据库<b>持久化保存</b>剪贴板历史,通过全局快捷键随时调出、搜索、粘贴。
+        Windows 与 macOS 上的剪贴板历史管理器。系统自带的剪贴板重启即清空,FineClipboard 用本地数据库
+        <b>持久化保存</b>文本 / 图片 / 文件,通过全局快捷键随时调出、搜索、粘贴,并支持加密的密码管理。
       </p>
 
-      <div class="cta">
-        <a class="btn btn-primary" href="/pastenow/download/PasteNowWin-Setup.exe" download>
-          ⬇ 下载安装版 (Setup.exe)
-        </a>
-        <a class="btn btn-ghost" href="/pastenow/download/PasteNowWin-win-x64.zip" download>
-          便携版 (zip)
-        </a>
+      <div class="platforms">
+        <div class="pcard">
+          <h3>🪟 Windows</h3>
+          <div class="os">Windows 10 / 11(64 位)· 自带运行时,无需安装 .NET</div>
+          <div class="cta">
+            <a class="btn btn-primary" href="/fineclipboard/download/FineClipboard-Setup.exe" download>⬇ 安装版 (Setup.exe)</a>
+            <a class="btn btn-ghost" href="/fineclipboard/download/FineClipboard-win-x64.zip" download>便携版 (zip)</a>
+          </div>
+        </div>
+        <div class="pcard">
+          <h3>🍎 macOS</h3>
+          <div class="os">macOS 13 Ventura 及以上 · Apple Silicon / Intel 通用</div>
+          <div class="cta">
+            <a class="btn btn-primary" href="/fineclipboard/download/FineClipboard-mac.zip" download>⬇ 下载 (.app zip)</a>
+          </div>
+        </div>
       </div>
       <p class="meta-line">
-        Windows 10 / 11 · 自带运行时,无需安装 .NET · 当前版本 <b id="version">最新</b>
+        当前版本 <b id="version">最新</b> · macOS 首次打开如提示“无法验证开发者”,右键图标选“打开”,并在
+        <b>系统设置 → 隐私与安全性 → 辅助功能</b> 中允许 FineClipboard 以启用自动粘贴。
       </p>
     </header>
 
     <section class="panel">
       <div class="section-title">核心功能</div>
       <div class="features">
-        <div class="feature"><h3><span class="dot">●</span> 剪贴板历史</h3><p>自动保存文本 / 图片 / 文件,跨重启持久化,自动去重。</p></div>
+        <div class="feature"><h3><span class="dot">●</span> 剪贴板历史</h3><p>自动保存文本 / 图片 / 文件,跨重启持久化,自动去重并置顶。</p></div>
         <div class="feature"><h3><span class="dot">●</span> 全局快捷键</h3><p>一键弹出历史框搜索粘贴,可在设置里自定义组合键。</p></div>
         <div class="feature"><h3><span class="dot">●</span> 纯文本粘贴</h3><p>一键把最近一条以无格式纯文本粘贴到当前窗口。</p></div>
-        <div class="feature"><h3><span class="dot">●</span> 类型分组与搜索</h3><p>全部 / 文本 / 图片 / 文件 / 置顶 标签筛选,顶部实时搜索。</p></div>
-        <div class="feature"><h3><span class="dot">●</span> 排除规则</h3><p>按进程名排除(如密码管理器),敏感复制不被记录。</p></div>
+        <div class="feature"><h3><span class="dot">●</span> 类型分组与搜索</h3><p>全部 / 文本 / 图片 / 文件 / 置顶 / 片段 / 密码 标签筛选,实时搜索。</p></div>
+        <div class="feature"><h3><span class="dot">●</span> 加密密码管理</h3><p>主密码 + AES-256-GCM 加密保存密码,查看 / 粘贴需主密码,密码不进历史。</p></div>
+        <div class="feature"><h3><span class="dot">●</span> 常用片段与列表</h3><p>把签名、模板存成片段;自定义列表分组管理常用条目。</p></div>
+        <div class="feature"><h3><span class="dot">●</span> 排除规则 / 隐私模式</h3><p>按应用排除敏感复制,或一键暂停记录。</p></div>
         <div class="feature"><h3><span class="dot">●</span> 过期自动清理</h3><p>可设 1 / 7 / 30 / 90 天或永不,置顶项始终保留。</p></div>
-        <div class="feature"><h3><span class="dot">●</span> 多屏跟随光标</h3><p>弹窗在光标所在显示器弹出,适配 per-monitor 高 DPI。</p></div>
-        <div class="feature"><h3><span class="dot">●</span> 提示音</h3><p>可选复制时播放提示音,操作有反馈。</p></div>
-        <div class="feature"><h3><span class="dot">●</span> 自动检查更新</h3><p>启动检查新版本,有更新托盘提示,一键回到本页下载。</p></div>
+        <div class="feature"><h3><span class="dot">●</span> 深色 / 浅色主题</h3><p>跟随系统或手动切换,弹窗大小可调,多屏跟随光标。</p></div>
       </div>
     </section>
 
     <section class="panel">
       <div class="section-title">默认快捷键</div>
       <div class="keys">
-        <div class="keyrow"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>V</kbd> <span>打开剪贴板历史框</span></div>
-        <div class="keyrow"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>B</kbd> <span>将最近一条以纯文本粘贴</span></div>
+        <div class="keyrow"><span class="plat">Windows</span><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>V</kbd> <span>打开剪贴板历史框</span></div>
+        <div class="keyrow"><span class="plat">Windows</span><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>B</kbd> <span>将最近一条以纯文本粘贴</span></div>
+        <div class="keyrow"><span class="plat">macOS</span><kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>V</kbd> <span>打开剪贴板历史框</span></div>
+        <div class="keyrow"><span class="plat">macOS</span><kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>B</kbd> <span>将最近一条以纯文本粘贴</span></div>
       </div>
     </section>
 
     <footer>
-      <span>© Cassian · PasteNowWin</span>
+      <span>© Cassian · FineClipboard</span>
       <span><a href="https://github.com/cassiarota/win-paste">GitHub 源码</a></span>
     </footer>
   </main>
 
   <script>
     // Show the deployed version, written by CI to download/version.txt.
-    fetch('/pastenow/download/version.txt', { cache: 'no-store' })
+    fetch('/fineclipboard/download/version.txt', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.text() : null; })
       .then(function (t) { if (t) { document.getElementById('version').textContent = 'v' + t.trim().replace(/^v/, ''); } })
       .catch(function () {});

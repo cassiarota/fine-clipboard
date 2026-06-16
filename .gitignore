@@ -13,6 +13,11 @@ obj/
 publish/
 *.zip
 
+# Swift / SwiftPM (Mac app)
+mac/.build/
+mac/dist/
+.swiftpm/
+
 # OS
 .DS_Store
 Thumbs.db

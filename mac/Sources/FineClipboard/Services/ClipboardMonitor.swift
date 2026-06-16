@@ -1,0 +1,68 @@
+import Cocoa
+
+/// Polls the general pasteboard (macOS has no change event) and reports new captures.
+/// Mirrors the Windows `ClipboardMonitor`: pause (privacy mode), suppression (so our own
+/// pastes aren't re-captured), and source-app exclusion.
+final class ClipboardMonitor {
+    /// kind, text, image-data (PNG), preview, source-app-name
+    var onCapture: ((ClipKind, String?, Data?, String, String?) -> Void)?
+    var shouldSkipSource: ((String?) -> Bool)?
+    var paused = false
+
+    private var lastChangeCount = 0
+    private var suppressUntil = Date.distantPast
+    private var timer: Timer?
+
+    func start() {
+        lastChangeCount = NSPasteboard.general.changeCount
+        let t = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in self?.poll() }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    func stop() { timer?.invalidate(); timer = nil }
+
+    /// Ignore captures for a short window (used right before we write to the pasteboard ourselves).
+    func suppress(_ seconds: TimeInterval = 1.0) { suppressUntil = Date().addingTimeInterval(seconds) }
+
+    private func poll() {
+        let pb = NSPasteboard.general
+        let cc = pb.changeCount
+        guard cc != lastChangeCount else { return }
+        lastChangeCount = cc
+
+        if paused || Date() < suppressUntil { return }
+        let source = NSWorkspace.shared.frontmostApplication?.localizedName
+        if shouldSkipSource?(source) == true { return }
+
+        // Priority: files -> text -> image (mirrors typical clipboard managers).
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            let paths = urls.map { $0.path }.joined(separator: "\n")
+            let names = urls.map { $0.lastPathComponent }.joined(separator: ", ")
+            onCapture?(.files, paths, nil, names, source)
+            return
+        }
+        if let s = pb.string(forType: .string), !s.isEmpty {
+            onCapture?(.text, s, nil, ClipboardMonitor.preview(s), source)
+            return
+        }
+        if let png = ClipboardMonitor.readImagePNG(pb) {
+            onCapture?(.image, nil, png, "🖼 图片", source)
+            return
+        }
+    }
+
+    static func preview(_ text: String) -> String {
+        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        return line.count > 100 ? String(line.prefix(100)) + "…" : line
+    }
+
+    /// Read the pasteboard image and normalise it to PNG bytes.
+    static func readImagePNG(_ pb: NSPasteboard) -> Data? {
+        guard let data = pb.data(forType: .tiff) ?? pb.data(forType: .png),
+              let rep = NSBitmapImageRep(data: data) else { return nil }
+        return rep.representation(using: .png, properties: [:])
+    }
+}
