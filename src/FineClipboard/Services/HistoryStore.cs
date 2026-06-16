@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Data.Sqlite;
@@ -50,7 +51,17 @@ public sealed class HistoryStore : IDisposable
     /// <summary>Settings key: base64 verifier (a known token encrypted with the master key).</summary>
     public const string PwCheckKey = "pw_check";
 
+    /// <summary>Settings key: KDF used by the password vault — "argon2id" or legacy "pbkdf2".</summary>
+    public const string PwKdfKey = "pw_kdf";
+
+    /// <summary>Settings key: DPAPI-sealed random key that encrypts history content.</summary>
+    public const string DbKeyKey = "db_key";
+
+    /// <summary>Settings key: "1" once history content has been encrypted.</summary>
+    public const string EncVersionKey = "enc_version";
+
     private readonly SqliteConnection _conn;
+    private readonly ContentCipher _cipher;
 
     public HistoryStore()
     {
@@ -63,6 +74,11 @@ public sealed class HistoryStore : IDisposable
         _conn = new SqliteConnection($"Data Source={dbPath}");
         _conn.Open();
         Initialize();
+
+        // The data dir lives under the per-user LocalApplicationData profile (already private
+        // to this Windows account); the DPAPI-sealed content key adds at-rest encryption on top.
+        _cipher = ContentCipher.Load(this);
+        MigrateEncryption();
     }
 
     private void Initialize()
@@ -140,7 +156,7 @@ public sealed class HistoryStore : IDisposable
     /// </summary>
     public void Add(ClipboardItem item)
     {
-        string hash = ComputeHash(item);
+        string hash = _cipher.DedupHash(ComputeCanonical(item));
 
         using (SqliteCommand find = _conn.CreateCommand())
         {
@@ -160,9 +176,9 @@ public sealed class HistoryStore : IDisposable
                 INSERT INTO items (type, text, image, preview, source_app, pinned, content_hash, created_at)
                 VALUES ($type, $text, $image, $preview, $src, 0, $hash, $created)";
             insert.Parameters.AddWithValue("$type", (int)item.Type);
-            insert.Parameters.AddWithValue("$text", (object?)item.Text ?? DBNull.Value);
-            insert.Parameters.AddWithValue("$image", (object?)item.ImageData ?? DBNull.Value);
-            insert.Parameters.AddWithValue("$preview", item.Preview);
+            insert.Parameters.AddWithValue("$text", (object?)_cipher.EncryptText(item.Text) ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$image", (object?)_cipher.EncryptBlob(item.ImageData) ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$preview", _cipher.EncryptText(item.Preview) ?? string.Empty);
             insert.Parameters.AddWithValue("$src", (object?)item.SourceApp ?? DBNull.Value);
             insert.Parameters.AddWithValue("$hash", hash);
             insert.Parameters.AddWithValue("$created", ToIso(DateTime.UtcNow));
@@ -170,6 +186,46 @@ public sealed class HistoryStore : IDisposable
         }
 
         TrimOverflow();
+    }
+
+    /// <summary>One-time: encrypt any rows left plaintext by a pre-encryption build.</summary>
+    private void MigrateEncryption()
+    {
+        if (GetSetting(EncVersionKey) == "1")
+        {
+            return;
+        }
+
+        var rows = new List<(long Id, int Type, string? Text, byte[]? Image, string Preview)>();
+        using (SqliteCommand read = _conn.CreateCommand())
+        {
+            read.CommandText = "SELECT id, type, text, image, preview FROM items";
+            using SqliteDataReader reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add((
+                    reader.GetInt64(0),
+                    reader.GetInt32(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.IsDBNull(3) ? null : (byte[])reader.GetValue(3),
+                    reader.GetString(4)));
+            }
+        }
+
+        foreach (var row in rows)
+        {
+            var item = new ClipboardItem { Type = (ClipItemType)row.Type, Text = row.Text, ImageData = row.Image };
+            using SqliteCommand up = _conn.CreateCommand();
+            up.CommandText = "UPDATE items SET text = $t, image = $i, preview = $p, content_hash = $h WHERE id = $id";
+            up.Parameters.AddWithValue("$t", (object?)_cipher.EncryptText(row.Text) ?? DBNull.Value);
+            up.Parameters.AddWithValue("$i", (object?)_cipher.EncryptBlob(row.Image) ?? DBNull.Value);
+            up.Parameters.AddWithValue("$p", _cipher.EncryptText(row.Preview) ?? string.Empty);
+            up.Parameters.AddWithValue("$h", _cipher.DedupHash(ComputeCanonical(item)));
+            up.Parameters.AddWithValue("$id", row.Id);
+            up.ExecuteNonQuery();
+        }
+
+        SetSetting(EncVersionKey, "1");
     }
 
     public List<ClipboardItem> GetAll(int limit = 200)
@@ -191,16 +247,13 @@ public sealed class HistoryStore : IDisposable
             return GetAll(limit);
         }
 
-        using SqliteCommand cmd = _conn.CreateCommand();
-        cmd.CommandText = @"
-            SELECT id, type, text, image, preview, source_app, pinned, created_at
-            FROM items
-            WHERE preview LIKE $q OR text LIKE $q
-            ORDER BY pinned DESC, created_at DESC
-            LIMIT $limit";
-        cmd.Parameters.AddWithValue("$q", "%" + query + "%");
-        cmd.Parameters.AddWithValue("$limit", limit);
-        return ReadAll(cmd);
+        // Content is encrypted at rest, so SQL LIKE can't match — decrypt and filter in memory.
+        string q = query.Trim();
+        return GetAll(100000)
+            .Where(i => (i.Text != null && i.Text.Contains(q, StringComparison.OrdinalIgnoreCase))
+                     || i.Preview.Contains(q, StringComparison.OrdinalIgnoreCase))
+            .Take(limit)
+            .ToList();
     }
 
     public ClipboardItem? GetMostRecentText()
@@ -484,7 +537,7 @@ public sealed class HistoryStore : IDisposable
         return MaxUnpinnedItems;
     }
 
-    private static List<ClipboardItem> ReadAll(SqliteCommand cmd)
+    private List<ClipboardItem> ReadAll(SqliteCommand cmd)
     {
         var list = new List<ClipboardItem>();
         using SqliteDataReader reader = cmd.ExecuteReader();
@@ -494,9 +547,9 @@ public sealed class HistoryStore : IDisposable
             {
                 Id = reader.GetInt64(0),
                 Type = (ClipItemType)reader.GetInt32(1),
-                Text = reader.IsDBNull(2) ? null : reader.GetString(2),
-                ImageData = reader.IsDBNull(3) ? null : (byte[])reader.GetValue(3),
-                Preview = reader.GetString(4),
+                Text = _cipher.DecryptText(reader.IsDBNull(2) ? null : reader.GetString(2)),
+                ImageData = _cipher.DecryptBlob(reader.IsDBNull(3) ? null : (byte[])reader.GetValue(3)),
+                Preview = _cipher.DecryptText(reader.GetString(4)) ?? string.Empty,
                 SourceApp = reader.IsDBNull(5) ? null : reader.GetString(5),
                 Pinned = reader.GetInt32(6) != 0,
                 CreatedAt = FromIso(reader.GetString(7)),
@@ -510,15 +563,13 @@ public sealed class HistoryStore : IDisposable
     private static DateTime FromIso(string s) =>
         DateTime.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 
-    private static string ComputeHash(ClipboardItem item)
+    /// <summary>Canonical plaintext form fed to the keyed dedup hash.</summary>
+    private static string ComputeCanonical(ClipboardItem item)
     {
-        byte[] data = item.Type switch
-        {
-            ClipItemType.Image => item.ImageData ?? Array.Empty<byte>(),
-            _ => Encoding.UTF8.GetBytes(item.Text ?? string.Empty),
-        };
-        byte[] hash = SHA256.HashData(data);
-        return ((int)item.Type).ToString(CultureInfo.InvariantCulture) + ":" + Convert.ToHexString(hash);
+        string body = item.Type == ClipItemType.Image
+            ? Convert.ToHexString(SHA256.HashData(item.ImageData ?? Array.Empty<byte>()))
+            : (item.Text ?? string.Empty);
+        return ((int)item.Type).ToString(CultureInfo.InvariantCulture) + ":" + body;
     }
 
     public void Dispose()

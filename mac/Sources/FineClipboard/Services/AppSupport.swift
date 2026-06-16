@@ -5,7 +5,7 @@ enum AppInfo {
     static let name = "FineClipboard"
     /// Read from the bundle's Info.plist when packaged; falls back when run as a bare binary.
     static let version: String =
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.9.0"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.10.0"
 }
 
 /// Launch-at-login via the modern Service Management API (macOS 13+).

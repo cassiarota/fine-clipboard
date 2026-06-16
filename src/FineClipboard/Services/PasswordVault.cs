@@ -2,15 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using Konscious.Security.Cryptography;
 using FineClipboard.Models;
 
 namespace FineClipboard.Services;
 
 /// <summary>
 /// Encrypted password store. Secrets are AES-256-GCM encrypted with a key derived from the
-/// user's master password via PBKDF2 (SHA-256). The master password is never stored — only a
-/// random salt and a verifier token. The derived key lives in memory only while unlocked.
-/// Blob layout per entry: nonce(12) || tag(16) || ciphertext.
+/// user's master password via <b>Argon2id</b> (new vaults); legacy PBKDF2-SHA256 vaults stay
+/// readable and upgrade to Argon2id on the next master-password change. The master password is
+/// never stored — only a random salt, a KDF tag and a verifier token. The derived key lives in
+/// memory only while unlocked. Blob layout per entry: nonce(12) || tag(16) || ciphertext.
 /// </summary>
 public sealed class PasswordVault
 {
@@ -18,7 +20,12 @@ public sealed class PasswordVault
     private const int TagLen = 16;
     private const int KeyLen = 32;
     private const int SaltLen = 16;
-    private const int Iterations = 200_000;
+    private const int Pbkdf2Iterations = 200_000;
+    private const string Argon2Kdf = "argon2id";
+    // Argon2id parameters (memory-hard): 64 MiB, 3 passes, 4 lanes.
+    private const int Argon2MemoryKiB = 65_536;
+    private const int Argon2Iterations = 3;
+    private const int Argon2Parallelism = 4;
     private static readonly byte[] CheckToken = Encoding.UTF8.GetBytes("FineClipboard-vault-v1");
 
     private readonly HistoryStore _store;
@@ -33,8 +40,9 @@ public sealed class PasswordVault
     public void SetMasterPassword(string password)
     {
         byte[] salt = RandomNumberGenerator.GetBytes(SaltLen);
-        byte[] key = Derive(password, salt);
+        byte[] key = DeriveArgon2(password, salt);
         _store.SetSetting(HistoryStore.PwSaltKey, Convert.ToBase64String(salt));
+        _store.SetSetting(HistoryStore.PwKdfKey, Argon2Kdf);
         _store.SetSetting(HistoryStore.PwCheckKey, Convert.ToBase64String(Encrypt(key, CheckToken)));
         ReplaceKey(key);
     }
@@ -72,8 +80,9 @@ public sealed class PasswordVault
         }
 
         byte[] newSalt = RandomNumberGenerator.GetBytes(SaltLen);
-        byte[] newKey = Derive(newPassword, newSalt);
+        byte[] newKey = DeriveArgon2(newPassword, newSalt); // re-encrypt under Argon2id
         _store.SetSetting(HistoryStore.PwSaltKey, Convert.ToBase64String(newSalt));
+        _store.SetSetting(HistoryStore.PwKdfKey, Argon2Kdf);
         _store.SetSetting(HistoryStore.PwCheckKey, Convert.ToBase64String(Encrypt(newKey, CheckToken)));
 
         foreach (var item in decrypted)
@@ -141,7 +150,9 @@ public sealed class PasswordVault
         {
             return null;
         }
-        byte[] key = Derive(password, Convert.FromBase64String(saltB64));
+        byte[] salt = Convert.FromBase64String(saltB64);
+        bool argon2 = _store.GetSetting(HistoryStore.PwKdfKey) == Argon2Kdf;
+        byte[] key = argon2 ? DeriveArgon2(password, salt) : DerivePbkdf2(password, salt);
         byte[]? decrypted = TryDecrypt(key, Convert.FromBase64String(checkB64));
         if (decrypted != null && CryptographicOperations.FixedTimeEquals(decrypted, CheckToken))
         {
@@ -160,8 +171,22 @@ public sealed class PasswordVault
         _key = newKey;
     }
 
-    private static byte[] Derive(string password, byte[] salt) =>
-        Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(password), salt, Iterations, HashAlgorithmName.SHA256, KeyLen);
+    /// <summary>Argon2id (memory-hard) — used by all new and re-keyed vaults.</summary>
+    private static byte[] DeriveArgon2(string password, byte[] salt)
+    {
+        using var argon2 = new Argon2id(Encoding.UTF8.GetBytes(password))
+        {
+            Salt = salt,
+            DegreeOfParallelism = Argon2Parallelism,
+            Iterations = Argon2Iterations,
+            MemorySize = Argon2MemoryKiB,
+        };
+        return argon2.GetBytes(KeyLen);
+    }
+
+    /// <summary>Legacy PBKDF2-SHA256 (kept so pre-Argon2id vaults still open).</summary>
+    private static byte[] DerivePbkdf2(string password, byte[] salt) =>
+        Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(password), salt, Pbkdf2Iterations, HashAlgorithmName.SHA256, KeyLen);
 
     private static byte[] Encrypt(byte[] key, byte[] plaintext)
     {

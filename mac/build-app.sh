@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="${1:-0.9.0}"
+VERSION="${1:-0.10.0}"
 APP="dist/FineClipboard.app"
 BUNDLE_ID="com.cassian.fineclipboard"
 

@@ -19,8 +19,11 @@ final class Store {
     static let firstRunKey = "first_run"
     static let pwSaltKey = "pw_salt"
     static let pwCheckKey = "pw_check"
+    static let pwKdfKey = "pw_kdf"
+    static let encVersionKey = "enc_version"
 
     private var db: OpaquePointer?
+    private var cipher: ContentCipher!
 
     /// `~/Library/Application Support/FineClipboard/history.db`
     static var dataDirectory: URL {
@@ -35,9 +38,47 @@ final class Store {
         sqlite3_open(path, &db)
         exec("PRAGMA journal_mode=WAL;")
         migrate()
+        cipher = ContentCipher(keyData: Keychain.getOrCreateKey(account: "history-key"))
+        restrictPermissions(dir)
+        migrateEncryptionIfNeeded()
     }
 
     deinit { if db != nil { sqlite3_close(db) } }
+
+    /// Lock the data dir + db files to the current user only.
+    private func restrictPermissions(_ dir: URL) {
+        let fm = FileManager.default
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        for f in ["history.db", "history.db-wal", "history.db-shm"] {
+            let p = dir.appendingPathComponent(f).path
+            if fm.fileExists(atPath: p) { try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: p) }
+        }
+    }
+
+    /// One-time: encrypt any rows left plaintext by a pre-encryption build.
+    private func migrateEncryptionIfNeeded() {
+        if setting(Store.encVersionKey) == "1" { return }
+        var rows: [(Int64, ClipKind, String?, Data?, String)] = []
+        if let stmt = prepare("SELECT id,kind,text,data,preview FROM items") {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                rows.append((
+                    sqlite3_column_int64(stmt, 0),
+                    ClipKind(rawValue: Int(sqlite3_column_int(stmt, 1))) ?? .text,
+                    columnText(stmt, 2), columnBlob(stmt, 3), columnText(stmt, 4) ?? ""))
+            }
+            sqlite3_finalize(stmt)
+        }
+        for (id, kind, text, data, preview) in rows {
+            let up = prepare("UPDATE items SET text=?, data=?, preview=?, hash=? WHERE id=?")
+            bindText(up, 1, cipher.encryptText(text))
+            bindBlob(up, 2, cipher.encryptBlob(data))
+            bindText(up, 3, cipher.encryptText(preview))
+            bindText(up, 4, cipher.dedupHash(canonical(kind: kind, text: text, data: data)))
+            sqlite3_bind_int64(up, 5, id)
+            sqlite3_step(up); sqlite3_finalize(up)
+        }
+        setSetting(Store.encVersionKey, "1")
+    }
 
     private func migrate() {
         exec("""
@@ -123,9 +164,9 @@ final class Store {
         ClipItem(
             id: sqlite3_column_int64(stmt, 0),
             kind: ClipKind(rawValue: Int(sqlite3_column_int(stmt, 1))) ?? .text,
-            text: columnText(stmt, 2),
-            data: columnBlob(stmt, 3),
-            preview: columnText(stmt, 4) ?? "",
+            text: cipher.decryptText(columnText(stmt, 2)),
+            data: cipher.decryptBlob(columnBlob(stmt, 3)),
+            preview: cipher.decryptText(columnText(stmt, 4)) ?? "",
             pinned: sqlite3_column_int(stmt, 5) != 0,
             listId: sqlite3_column_type(stmt, 6) == SQLITE_NULL ? nil : sqlite3_column_int64(stmt, 6),
             source: columnText(stmt, 7),
@@ -157,18 +198,17 @@ final class Store {
         query("list_id=?", bind: { sqlite3_bind_int64($0, 1, listId) })
     }
 
+    /// Content is encrypted at rest, so SQL LIKE can't match — decrypt and filter in memory.
     func searchItems(_ term: String, limit: Int = 500) -> [ClipItem] {
-        let stmt = prepare("SELECT \(Store.itemCols) FROM items WHERE text LIKE ? OR preview LIKE ? ORDER BY pinned DESC, last_used DESC LIMIT \(limit)")
-        defer { sqlite3_finalize(stmt) }
-        let like = "%\(term)%"
-        bindText(stmt, 1, like); bindText(stmt, 2, like)
-        var out: [ClipItem] = []
-        while sqlite3_step(stmt) == SQLITE_ROW { out.append(rowToItem(stmt)) }
-        return out
+        let t = term.lowercased()
+        let matched = query("").filter {
+            ($0.text?.lowercased().contains(t) ?? false) || $0.preview.lowercased().contains(t)
+        }
+        return Array(matched.prefix(limit))
     }
 
-    /// Hash used for de-duplication.
-    static func hash(kind: ClipKind, text: String?, data: Data?) -> String {
+    /// Canonical plaintext form fed to the keyed dedup hash.
+    private func canonical(kind: ClipKind, text: String?, data: Data?) -> String {
         switch kind {
         case .text: return "t:" + (text ?? "")
         case .files: return "f:" + (text ?? "")
@@ -181,7 +221,7 @@ final class Store {
     /// Insert a new item, or if identical content already exists bump it to the top.
     @discardableResult
     func add(kind: ClipKind, text: String?, data: Data?, preview: String, source: String?) -> Int64 {
-        let h = Store.hash(kind: kind, text: text, data: data)
+        let h = cipher.dedupHash(canonical(kind: kind, text: text, data: data))
         let now = Date().timeIntervalSince1970
         // De-dup: bump existing identical content to the top.
         if let existing = prepare("SELECT id FROM items WHERE hash=? LIMIT 1") {
@@ -196,9 +236,9 @@ final class Store {
         let stmt = prepare("INSERT INTO items(kind,text,data,preview,hash,pinned,list_id,source,created_at,last_used) VALUES(?,?,?,?,?,0,NULL,?,?,?)")
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_int(stmt, 1, Int32(kind.rawValue))
-        bindText(stmt, 2, text)
-        bindBlob(stmt, 3, data)
-        bindText(stmt, 4, preview)
+        bindText(stmt, 2, cipher.encryptText(text))
+        bindBlob(stmt, 3, cipher.encryptBlob(data))
+        bindText(stmt, 4, cipher.encryptText(preview))
         bindText(stmt, 5, h)
         bindText(stmt, 6, source)
         sqlite3_bind_double(stmt, 7, now)
