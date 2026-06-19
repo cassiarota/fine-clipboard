@@ -78,9 +78,10 @@ public sealed class HistoryStore : IDisposable
 
     public HistoryStore()
     {
-        string dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "FineClipboard");
+        string? overrideDir = Environment.GetEnvironmentVariable("FINECLIPBOARD_DATA_DIR");
+        string dir = !string.IsNullOrWhiteSpace(overrideDir)
+            ? overrideDir
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FineClipboard");
         Directory.CreateDirectory(dir);
         string dbPath = Path.Combine(dir, "history.db");
 

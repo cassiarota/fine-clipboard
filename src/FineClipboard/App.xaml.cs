@@ -59,6 +59,14 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        if (Array.Exists(e.Args, arg => string.Equals(arg, "--self-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            string? report = Array.Find(e.Args, arg => arg.StartsWith("--self-test-report=", StringComparison.OrdinalIgnoreCase));
+            int exitCode = SelfTestRunner.Run(report?[(report.IndexOf('=') + 1)..]);
+            Shutdown(exitCode);
+            return;
+        }
+
         // Single instance: bail out if another copy is already running.
         _singleInstance = new Mutex(initiallyOwned: true, "FineClipboard.SingleInstance", out bool isNew);
         if (!isNew)

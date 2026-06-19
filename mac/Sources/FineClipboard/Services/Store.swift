@@ -35,6 +35,9 @@ final class Store {
 
     /// `~/Library/Application Support/FineClipboard/history.db`
     static var dataDirectory: URL {
+        if let override = ProcessInfo.processInfo.environment["FINECLIPBOARD_DATA_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return base.appendingPathComponent("FineClipboard", isDirectory: true)
     }

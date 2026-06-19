@@ -50,6 +50,15 @@ jobs:
           -p:Version=${{ env.VER }}
           -o publish
 
+      - name: Run Windows clipboard and screenshot self-test
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'fineclipboard-selftest.txt'
+          & publish/FineClipboard.exe --self-test "--self-test-report=$report"
+          $code = $LASTEXITCODE
+          Get-Content $report
+          if ($code -ne 0) { throw "FineClipboard self-test failed with exit code $code" }
+
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |
@@ -101,6 +110,9 @@ jobs:
         run: |
           cd mac
           UNIVERSAL=1 ./build-app.sh "$VER"
+
+      - name: Run macOS clipboard self-test
+        run: mac/dist/FineClipboard.app/Contents/MacOS/FineClipboard --self-test
 
       - name: Stage macOS dist (fixed + versioned names)
         run: |
