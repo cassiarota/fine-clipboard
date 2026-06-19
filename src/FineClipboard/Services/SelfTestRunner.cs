@@ -91,7 +91,8 @@ internal static class SelfTestRunner
 
             var preview = new ScreenshotPreviewWindow(png) { ShowActivated = false, Left = -32000, Top = -32000 };
             preview.Show(); preview.UpdateLayout();
-            MethodInfo? render = typeof(ScreenshotPreviewWindow).GetMethod("Render", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo? render = typeof(ScreenshotPreviewWindow).GetMethods(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+                .SingleOrDefault(method => method.Name == "Render" && method.GetParameters().Length == 0);
             BitmapSource? rendered = render?.Invoke(preview, null) as BitmapSource;
             Check("screenshot editor render", rendered?.PixelWidth == 160 && rendered.PixelHeight == 100);
             preview.Close();
