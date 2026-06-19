@@ -54,8 +54,10 @@ jobs:
         shell: pwsh
         run: |
           $report = Join-Path $env:RUNNER_TEMP 'fineclipboard-selftest.txt'
-          & publish/FineClipboard.exe --self-test "--self-test-report=$report"
-          $code = $LASTEXITCODE
+          $process = Start-Process -FilePath 'publish/FineClipboard.exe' `
+            -ArgumentList @('--self-test', "--self-test-report=$report") `
+            -WindowStyle Hidden -Wait -PassThru
+          $code = $process.ExitCode
           Get-Content $report
           if ($code -ne 0) { throw "FineClipboard self-test failed with exit code $code" }
 
