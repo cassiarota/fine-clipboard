@@ -14,13 +14,22 @@ using Microsoft.Win32;
 
 namespace FineClipboard.Views;
 
-/// <summary>Non-destructive screenshot annotation surface with PNG export/copy.</summary>
+/// <summary>Non-destructive screenshot annotation surface with full editing history and PNG export/copy.</summary>
 public partial class ScreenshotPreviewWindow : Window
 {
+    private sealed record EditorAction(UIElement Item, bool Added, int Index);
+
     private readonly BitmapSource _bitmap;
     private readonly BitmapSource _pixelBitmap;
     private readonly List<UIElement> _operations = new();
-    private string _tool = "select";
+    private readonly Stack<EditorAction> _history = new();
+    private readonly Stack<EditorAction> _redo = new();
+    private string _tool = "shape";
+    private string _shape = "rect";
+    private string _line = "arrow";
+    private Color _color = Color.FromRgb(245, 34, 45);
+    private double _penWidth = 5;
+    private bool _roundPen = true;
     private Point _start;
     private UIElement? _active;
     private bool _drawing;
@@ -32,48 +41,91 @@ public partial class ScreenshotPreviewWindow : Window
         _bitmap = LoadBitmap(png);
         _pixelBitmap = new FormatConvertedBitmap(_bitmap, PixelFormats.Bgra32, null, 0);
         PreviewImage.Source = _bitmap;
-        EditorSurface.Width = _bitmap.PixelWidth;
-        EditorSurface.Height = _bitmap.PixelHeight;
-        AnnotationCanvas.Width = _bitmap.PixelWidth;
-        AnnotationCanvas.Height = _bitmap.PixelHeight;
-        SelectTool.IsChecked = true;
+        EditorSurface.Width = AnnotationCanvas.Width = _bitmap.PixelWidth;
+        EditorSurface.Height = AnnotationCanvas.Height = _bitmap.PixelHeight;
+        ShapeTool.IsChecked = true;
+        UpdateHistoryButtons();
     }
+
+    private SolidColorBrush CurrentBrush() => new(_color);
 
     private void Tool_Checked(object sender, RoutedEventArgs e)
     {
         if (sender is not ToggleButton selected || selected.Tag is not string tool) return;
         _tool = tool;
-        foreach (ToggleButton button in new[] { SelectTool, RectTool, ArrowTool, PenTool, MosaicTool, TextTool })
+        foreach (ToggleButton button in new[] { ShapeTool, LineTool, PenTool, MosaicTool, TextTool, EraserTool })
             if (!ReferenceEquals(button, selected)) button.IsChecked = false;
         selected.IsChecked = true;
-        AnnotationCanvas.Cursor = tool == "select" ? Cursors.Arrow : tool == "text" ? Cursors.IBeam : Cursors.Cross;
+        ColorTool.IsChecked = false;
+        AnnotationCanvas.Cursor = tool == "text" ? Cursors.IBeam : tool == "eraser" ? Cursors.Hand : Cursors.Cross;
+    }
+
+    private void SelectTool(ToggleButton button)
+    {
+        button.IsChecked = true;
+        Tool_Checked(button, new RoutedEventArgs());
+    }
+
+    private void ShapeMenu_Click(object sender, RoutedEventArgs e) { ShapePopup.IsOpen = true; }
+    private void LineMenu_Click(object sender, RoutedEventArgs e) { LinePopup.IsOpen = true; }
+    private void PenMenu_Click(object sender, RoutedEventArgs e) { PenPopup.IsOpen = true; }
+    private void ColorMenu_Click(object sender, RoutedEventArgs e) { ColorPopup.IsOpen = true; ColorTool.IsChecked = false; }
+
+    private void ShapeChoice_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string value }) _shape = value;
+        ShapePopup.IsOpen = false; SelectTool(ShapeTool);
+    }
+
+    private void LineChoice_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string value }) _line = value;
+        LinePopup.IsOpen = false; SelectTool(LineTool);
+    }
+
+    private void ColorChoice_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string value })
+        {
+            _color = (Color)ColorConverter.ConvertFromString(value);
+            CurrentColorDot.Fill = CurrentBrush();
+        }
+        ColorPopup.IsOpen = false;
+    }
+
+    private void PenWidth_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string value } && double.TryParse(value, out double width)) _penWidth = width;
+        SelectTool(PenTool);
+    }
+
+    private void PenShape_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string value }) _roundPen = value == "round";
+        PenPopup.IsOpen = false; SelectTool(PenTool);
     }
 
     private void Editor_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         Point p = Clamp(e.GetPosition(AnnotationCanvas));
-        if (_tool == "select") return;
-        if (_tool == "text")
-        {
-            AddTextEditor(p);
-            e.Handled = true;
-            return;
-        }
+        if (_tool == "eraser") { EraseAt(p); e.Handled = true; return; }
+        if (_tool == "text") { AddTextEditor(p); e.Handled = true; return; }
 
-        _start = p;
-        _drawing = true;
-        AnnotationCanvas.CaptureMouse();
+        _start = p; _drawing = true; AnnotationCanvas.CaptureMouse();
+        Brush brush = CurrentBrush();
         _active = _tool switch
         {
-            "rect" => new Rectangle { Stroke = Brushes.Red, StrokeThickness = 3, Fill = Brushes.Transparent },
-            "arrow" => new Canvas { Width = _bitmap.PixelWidth, Height = _bitmap.PixelHeight },
-            "pen" => new Polyline { Stroke = Brushes.Red, StrokeThickness = 4, StrokeLineJoin = PenLineJoin.Round },
+            "shape" when _shape == "ellipse" => new Ellipse { Stroke = brush, StrokeThickness = _penWidth, Fill = Brushes.Transparent },
+            "shape" => new Rectangle { Stroke = brush, StrokeThickness = _penWidth, Fill = Brushes.Transparent,
+                RadiusX = _shape == "roundedRect" ? 14 : 0, RadiusY = _shape == "roundedRect" ? 14 : 0 },
+            "line" => new Canvas { Width = _bitmap.PixelWidth, Height = _bitmap.PixelHeight },
+            "pen" => new Polyline { Stroke = brush, StrokeThickness = _penWidth, StrokeLineJoin = _roundPen ? PenLineJoin.Round : PenLineJoin.Bevel,
+                StrokeStartLineCap = _roundPen ? PenLineCap.Round : PenLineCap.Square, StrokeEndLineCap = _roundPen ? PenLineCap.Round : PenLineCap.Square },
             "mosaic" => new Canvas { Width = _bitmap.PixelWidth, Height = _bitmap.PixelHeight },
             _ => null,
         };
-        if (_active == null) return;
-        AnnotationCanvas.Children.Add(_active);
-        _operations.Add(_active);
+        if (_active == null) { _drawing = false; return; }
+        AddOperation(_active);
         if (_active is Polyline polyline) polyline.Points.Add(p);
         if (_tool == "mosaic") AddMosaicBlock((Canvas)_active, p);
         e.Handled = true;
@@ -83,50 +135,58 @@ public partial class ScreenshotPreviewWindow : Window
     {
         if (!_drawing || _active == null || e.LeftButton != MouseButtonState.Pressed) return;
         Point p = Clamp(e.GetPosition(AnnotationCanvas));
-        if (_active is Rectangle rect)
+        if (_active is Shape shape)
         {
-            Canvas.SetLeft(rect, Math.Min(_start.X, p.X)); Canvas.SetTop(rect, Math.Min(_start.Y, p.Y));
-            rect.Width = Math.Abs(p.X - _start.X); rect.Height = Math.Abs(p.Y - _start.Y);
+            Canvas.SetLeft(shape, Math.Min(_start.X, p.X)); Canvas.SetTop(shape, Math.Min(_start.Y, p.Y));
+            shape.Width = Math.Abs(p.X - _start.X); shape.Height = Math.Abs(p.Y - _start.Y);
         }
-        else if (_tool == "arrow" && _active is Canvas arrow)
-        {
-            DrawArrow(arrow, _start, p);
-        }
-        else if (_active is Polyline line)
-        {
-            line.Points.Add(p);
-        }
-        else if (_tool == "mosaic" && _active is Canvas mosaic)
-        {
-            AddMosaicBlock(mosaic, p);
-        }
+        else if (_tool == "line" && _active is Canvas lineCanvas) DrawLine(lineCanvas, _start, p, _line == "arrow", CurrentBrush(), _penWidth);
+        else if (_active is Polyline line) line.Points.Add(p);
+        else if (_tool == "mosaic" && _active is Canvas mosaic) AddMosaicBlock(mosaic, p);
     }
 
     private void Editor_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (!_drawing) return;
-        _drawing = false;
-        _active = null;
-        AnnotationCanvas.ReleaseMouseCapture();
-        e.Handled = true;
+        _drawing = false; _active = null; AnnotationCanvas.ReleaseMouseCapture(); e.Handled = true;
+    }
+
+    private void AddOperation(UIElement item)
+    {
+        int index = _operations.Count;
+        AnnotationCanvas.Children.Add(item); _operations.Add(item);
+        _history.Push(new EditorAction(item, true, index)); _redo.Clear(); UpdateHistoryButtons();
     }
 
     private void AddTextEditor(Point point)
     {
         var box = new TextBox
         {
-            Text = "输入文字", Foreground = Brushes.Red, Background = new SolidColorBrush(Color.FromArgb(170, 255, 255, 255)),
-            BorderBrush = Brushes.Red, BorderThickness = new Thickness(1), FontSize = Math.Max(18, _bitmap.PixelWidth / 60.0),
+            Text = "输入文字", Foreground = CurrentBrush(), Background = new SolidColorBrush(Color.FromArgb(185, 255, 255, 255)),
+            BorderBrush = CurrentBrush(), BorderThickness = new Thickness(1), FontSize = Math.Max(18, _bitmap.PixelWidth / 60.0),
             MinWidth = 100, Padding = new Thickness(3), AcceptsReturn = true,
         };
-        Canvas.SetLeft(box, point.X); Canvas.SetTop(box, point.Y);
-        AnnotationCanvas.Children.Add(box); _operations.Add(box);
-        box.Focus(); box.SelectAll();
+        box.LostKeyboardFocus += (_, _) => { box.Background = Brushes.Transparent; box.BorderBrush = Brushes.Transparent; };
+        Canvas.SetLeft(box, point.X); Canvas.SetTop(box, point.Y); AddOperation(box); box.Focus(); box.SelectAll();
+    }
+
+    private void EraseAt(Point point)
+    {
+        HitTestResult? hit = VisualTreeHelper.HitTest(AnnotationCanvas, point);
+        DependencyObject? current = hit?.VisualHit;
+        while (current != null && VisualTreeHelper.GetParent(current) != AnnotationCanvas) current = VisualTreeHelper.GetParent(current);
+        if (current is UIElement item)
+        {
+            int index = _operations.IndexOf(item);
+            if (index < 0) return;
+            _operations.RemoveAt(index); AnnotationCanvas.Children.Remove(item);
+            _history.Push(new EditorAction(item, false, index)); _redo.Clear(); UpdateHistoryButtons(); Hint.Text = "已擦除一项标注";
+        }
     }
 
     private void AddMosaicBlock(Canvas layer, Point p)
     {
-        const int size = 18;
+        int size = Math.Max(12, (int)(_penWidth * 4));
         int x = Math.Clamp((int)p.X / size * size, 0, Math.Max(0, _bitmap.PixelWidth - size));
         int y = Math.Clamp((int)p.Y / size * size, 0, Math.Max(0, _bitmap.PixelHeight - size));
         if (layer.Children.Cast<FrameworkElement>().Any(v => (int)Canvas.GetLeft(v) == x && (int)Canvas.GetTop(v) == y)) return;
@@ -142,25 +202,57 @@ public partial class ScreenshotPreviewWindow : Window
         return Color.FromArgb(255, pixel[2], pixel[1], pixel[0]);
     }
 
-    private static void DrawArrow(Canvas canvas, Point start, Point end)
+    private static void DrawLine(Canvas canvas, Point start, Point end, bool arrow, Brush brush, double width)
     {
         canvas.Children.Clear();
-        var shaft = new Line { X1 = start.X, Y1 = start.Y, X2 = end.X, Y2 = end.Y, Stroke = Brushes.Red, StrokeThickness = 4 };
-        double angle = Math.Atan2(end.Y - start.Y, end.X - start.X);
-        const double length = 20, spread = 0.55;
-        var head = new Polygon { Fill = Brushes.Red, Points = new PointCollection
+        canvas.Children.Add(new Line { X1 = start.X, Y1 = start.Y, X2 = end.X, Y2 = end.Y, Stroke = brush, StrokeThickness = width,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+        if (!arrow) return;
+        double angle = Math.Atan2(end.Y - start.Y, end.X - start.X), length = Math.Max(16, width * 4), spread = 0.55;
+        canvas.Children.Add(new Polygon { Fill = brush, Points = new PointCollection
         {
             end,
             new(end.X - length * Math.Cos(angle - spread), end.Y - length * Math.Sin(angle - spread)),
             new(end.X - length * Math.Cos(angle + spread), end.Y - length * Math.Sin(angle + spread)),
-        }};
-        canvas.Children.Add(shaft); canvas.Children.Add(head);
+        }});
     }
 
     private void Undo_Click(object sender, RoutedEventArgs e)
     {
-        if (_operations.Count == 0) return;
-        UIElement item = _operations[^1]; _operations.RemoveAt(_operations.Count - 1); AnnotationCanvas.Children.Remove(item);
+        if (_history.Count == 0) return;
+        EditorAction action = _history.Pop();
+        if (action.Added)
+        {
+            _operations.Remove(action.Item); AnnotationCanvas.Children.Remove(action.Item);
+        }
+        else
+        {
+            int index = Math.Min(action.Index, _operations.Count);
+            _operations.Insert(index, action.Item); AnnotationCanvas.Children.Insert(index, action.Item);
+        }
+        _redo.Push(action); UpdateHistoryButtons();
+    }
+
+    private void Redo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_redo.Count == 0) return;
+        EditorAction action = _redo.Pop();
+        if (action.Added)
+        {
+            int index = Math.Min(action.Index, _operations.Count);
+            _operations.Insert(index, action.Item); AnnotationCanvas.Children.Insert(index, action.Item);
+        }
+        else
+        {
+            _operations.Remove(action.Item); AnnotationCanvas.Children.Remove(action.Item);
+        }
+        _history.Push(action); UpdateHistoryButtons();
+    }
+
+    private void UpdateHistoryButtons()
+    {
+        if (UndoButton == null || RedoButton == null) return;
+        UndoButton.IsEnabled = _history.Count > 0; RedoButton.IsEnabled = _redo.Count > 0;
     }
 
     private void Copy_Click(object sender, RoutedEventArgs e)
@@ -174,16 +266,24 @@ public partial class ScreenshotPreviewWindow : Window
         var dialog = new SaveFileDialog { Filter = "PNG 图片|*.png", FileName = $"screenshot-{DateTime.Now:yyyyMMdd-HHmmss}.png" };
         if (dialog.ShowDialog(this) != true) return;
         using FileStream file = File.Create(dialog.FileName);
-        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(Render())); encoder.Save(file);
-        Hint.Text = $"已导出到 {dialog.FileName}";
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(Render())); encoder.Save(file); Hint.Text = $"已保存到 {dialog.FileName}";
     }
 
-    private void Done_Click(object sender, RoutedEventArgs e) { Copy_Click(sender, e); Close(); }
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            if (e.Key == Key.Z) { Undo_Click(sender, e); e.Handled = true; }
+            else if (e.Key == Key.Y) { Redo_Click(sender, e); e.Handled = true; }
+            else if (e.Key == Key.S) { Save_Click(sender, e); e.Handled = true; }
+            else if (e.Key == Key.C && Keyboard.FocusedElement is not TextBox) { Copy_Click(sender, e); e.Handled = true; }
+        }
+        else if (e.Key == Key.Escape) Close();
+    }
 
     private BitmapSource Render()
     {
-        Keyboard.ClearFocus();
-        EditorSurface.UpdateLayout();
+        Keyboard.ClearFocus(); EditorSurface.UpdateLayout();
         var result = new RenderTargetBitmap(_bitmap.PixelWidth, _bitmap.PixelHeight, 96, 96, PixelFormats.Pbgra32);
         result.Render(EditorSurface); result.Freeze(); return result;
     }
